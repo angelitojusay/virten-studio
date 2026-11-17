@@ -1,0 +1,7 @@
+﻿{"name": "Classic Black & White",
+ "description": "Rich monochrome with punchy contrast, bright skin, deep skies and fine grain.",
+ "set": {"ConvertToGrayscale": true, "GrayMixerRed": -5, "GrayMixerOrange": 10, "GrayMixerYellow": 0,
+         "GrayMixerGreen": -20, "GrayMixerAqua": -15, "GrayMixerBlue": -25, "GrayMixerPurple": -5,
+         "GrayMixerMagenta": 0, "ToneCurvePV2012": [0, 0, 64, 56, 128, 128, 192, 200, 255, 255],
+         "GrainAmount": 15, "PostCropVignetteAmount": -10},
+ "offset": {"Contrast2012": 20, "Whites2012": 10, "Blacks2012": -10, "Clarity2012": 10}}

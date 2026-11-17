@@ -1,0 +1,18 @@
+{
+ "name": "Golden Hour Glow",
+ "description": "Rich late-afternoon warmth: amber highlights, a soft warm tint, lifted warm shadows, gentle vignette.",
+ "set": {
+  "SplitToningHighlightHue": 42,
+  "SplitToningHighlightSaturation": 18,
+  "SplitToningShadowHue": 28,
+  "SplitToningShadowSaturation": 8,
+  "PostCropVignetteAmount": -10
+ },
+ "offset": {
+  "Temperature": 300,
+  "Tint": 4,
+  "Highlights2012": -15,
+  "Shadows2012": 15,
+  "Vibrance": 10
+ }
+}

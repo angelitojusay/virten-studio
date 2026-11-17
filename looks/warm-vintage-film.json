@@ -1,0 +1,10 @@
+﻿{"name": "Warm Vintage Film",
+ "description": "Nostalgic film stock: warm cast, gently faded curve, softened blues and greens, fine grain.",
+ "set": {"ToneCurvePV2012": [0, 22, 64, 66, 128, 132, 192, 196, 255, 242],
+         "SplitToningShadowHue": 35, "SplitToningShadowSaturation": 10, "SplitToningHighlightHue": 48,
+         "SplitToningHighlightSaturation": 14, "ColorGradeMidtoneHue": 40, "ColorGradeMidtoneSat": 6,
+         "HueAdjustmentBlue": -10, "SaturationAdjustmentBlue": -25, "HueAdjustmentGreen": -10,
+         "SaturationAdjustmentGreen": -20, "LuminanceAdjustmentOrange": 5, "RedSaturation": 10,
+         "GrainAmount": 22, "GrainSize": 35, "PostCropVignetteAmount": -10},
+ "offset": {"Temperature": 250, "Tint": 3, "Contrast2012": -5, "Highlights2012": -15, "Saturation": -10,
+            "Vibrance": 5}}

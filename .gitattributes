@@ -1,0 +1,10 @@
+# The AI models are large binaries: keep them in Git LFS, not in the Git history.
+models/*.onnx filter=lfs diff=lfs merge=lfs -text
+models/*.tflite filter=lfs diff=lfs merge=lfs -text
+models/*.task filter=lfs diff=lfs merge=lfs -text
+
+# Lua and shell scripts must keep Unix line endings (the Mac build runs build_mac.sh; Lightroom reads the plugin).
+*.lua text eol=lf
+*.sh text eol=lf
+*.command text eol=lf
+*.bat text eol=crlf

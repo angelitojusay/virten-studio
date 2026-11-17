@@ -1,0 +1,30 @@
+{
+ "name": "Documentary Warm Matte",
+ "description": "Storytelling editorial grade: velvety matte blacks, warm midtones, desaturated greens and blues, subtle vignette.",
+ "set": {
+  "ToneCurvePV2012": [
+   0,
+   24,
+   60,
+   58,
+   128,
+   126,
+   196,
+   198,
+   255,
+   240
+  ],
+  "SaturationAdjustmentGreen": -35,
+  "SaturationAdjustmentBlue": -25,
+  "PostCropVignetteAmount": -14
+ },
+ "offset": {
+  "Contrast2012": -6,
+  "Highlights2012": -18,
+  "Shadows2012": 12,
+  "Blacks2012": 10,
+  "Temperature": 120,
+  "Saturation": -10,
+  "Vibrance": 6
+ }
+}

@@ -1,0 +1,25 @@
+{
+ "name": "Portra 400",
+ "description": "Iconic wedding film stock: creamy warm skin tones, gently lifted shadows, golden highlights, slightly muted cyans and greens, fine grain.",
+ "set": {
+  "ToneCurvePV2012": [
+   0,
+   12,
+   64,
+   62,
+   128,
+   132,
+   192,
+   200,
+   255,
+   248
+  ],
+  "HueAdjustmentGreen": 10,
+  "SaturationAdjustmentGreen": -20,
+  "LuminanceAdjustmentOrange": 8,
+  "GrainAmount": 12
+ },
+ "offset": {
+  "Temperature": 100
+ }
+}

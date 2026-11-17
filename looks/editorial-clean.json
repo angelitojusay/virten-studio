@@ -1,0 +1,29 @@
+{
+ "name": "Editorial Clean",
+ "description": "Modern magazine polish: crisp micro-contrast, neutral-warm whites, deep true blacks, controlled saturation.",
+ "set": {
+  "ToneCurvePV2012": [
+   0,
+   0,
+   56,
+   50,
+   128,
+   128,
+   200,
+   208,
+   255,
+   255
+  ],
+  "LuminanceAdjustmentOrange": 5
+ },
+ "offset": {
+  "Contrast2012": 10,
+  "Highlights2012": -12,
+  "Whites2012": 10,
+  "Blacks2012": -8,
+  "Clarity2012": 6,
+  "Texture": 4,
+  "Saturation": -6,
+  "Vibrance": 8
+ }
+}

@@ -1,0 +1,9 @@
+﻿{"name": "Bright & Airy",
+ "description": "Light and clean: lifted shadows, soft contrast, glowing skin, pale greens and blues.",
+ "set": {"ToneCurvePV2012": [0, 10, 64, 74, 128, 140, 192, 204, 255, 252],
+         "SaturationAdjustmentGreen": -25, "LuminanceAdjustmentGreen": 15, "SaturationAdjustmentOrange": -5,
+         "LuminanceAdjustmentOrange": 12, "SaturationAdjustmentBlue": -15, "LuminanceAdjustmentBlue": 10,
+         "SplitToningHighlightHue": 50, "SplitToningHighlightSaturation": 6},
+ "offset": {"Exposure2012": 0.25, "Contrast2012": -12, "Highlights2012": -20, "Shadows2012": 20,
+            "Whites2012": 8, "Blacks2012": 8, "Clarity2012": -5, "Vibrance": 8, "Saturation": -5,
+            "Temperature": 150}}

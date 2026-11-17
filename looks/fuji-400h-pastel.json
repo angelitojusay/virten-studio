@@ -1,0 +1,29 @@
+{
+ "name": "Fuji 400H Pastel",
+ "description": "Fine-art film look: cool airy highlights, pastel greens and blues, soft contrast, luminous skin.",
+ "set": {
+  "ToneCurvePV2012": [
+   0,
+   8,
+   64,
+   70,
+   128,
+   136,
+   192,
+   202,
+   255,
+   250
+  ],
+  "HueAdjustmentGreen": 15,
+  "SaturationAdjustmentGreen": -30,
+  "LuminanceAdjustmentGreen": 12,
+  "HueAdjustmentAqua": -10,
+  "LuminanceAdjustmentOrange": 10
+ },
+ "offset": {
+  "Exposure2012": 0.2,
+  "Highlights2012": -18,
+  "Shadows2012": 16,
+  "Tint": -3
+ }
+}

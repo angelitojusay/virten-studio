@@ -1,0 +1,11 @@
+﻿{"name": "Moody Film",
+ "description": "Dark, matte and atmospheric: faded blacks, deep muted greens, cool shadows, visible grain.",
+ "set": {"ToneCurvePV2012": [0, 28, 50, 52, 128, 122, 200, 198, 255, 238],
+         "SplitToningShadowHue": 215, "SplitToningShadowSaturation": 12, "SplitToningHighlightHue": 45,
+         "SplitToningHighlightSaturation": 10, "ColorGradeBlending": 70,
+         "HueAdjustmentGreen": 25, "SaturationAdjustmentGreen": -45, "LuminanceAdjustmentGreen": -25,
+         "SaturationAdjustmentYellow": -30, "SaturationAdjustmentBlue": -20, "LuminanceAdjustmentBlue": -15,
+         "SaturationAdjustmentOrange": -5, "GrainAmount": 18, "GrainSize": 30, "GrainFrequency": 55,
+         "PostCropVignetteAmount": -18},
+ "offset": {"Exposure2012": -0.15, "Contrast2012": 5, "Highlights2012": -20, "Shadows2012": -5,
+            "Whites2012": -10, "Saturation": -15, "Clarity2012": 8, "Texture": 5}}

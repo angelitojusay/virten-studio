@@ -1,0 +1,33 @@
+{
+ "name": "Kodak Tri-X 400 B&W",
+ "description": "Classic documentary monochrome: gritty silver-halide contrast, deep blacks, bright skin, authentic film grain.",
+ "set": {
+  "ConvertToGrayscale": true,
+  "ToneCurvePV2012": [
+   0,
+   6,
+   58,
+   46,
+   128,
+   130,
+   198,
+   210,
+   255,
+   250
+  ],
+  "GrayMixerOrange": 14,
+  "GrayMixerYellow": 10,
+  "GrayMixerGreen": -15,
+  "GrayMixerBlue": -20,
+  "GrainAmount": 26,
+  "GrainSize": 32
+ },
+ "offset": {
+  "Contrast2012": 28,
+  "Highlights2012": -10,
+  "Shadows2012": -8,
+  "Whites2012": 14,
+  "Blacks2012": -14,
+  "Clarity2012": 14
+ }
+}
