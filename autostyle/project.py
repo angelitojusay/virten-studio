@@ -366,9 +366,19 @@ def run_project(project, progress=None, cancelled=lambda: False):
     project["status"] = "ready"
     project["count"] = len(photos)
     # base_settings (before the Look) and dims let Exposure Bias / Look Strength be re-exported instantly.
+    as_shot = lrcat.as_shot_white_balance(project["catalog"], photos)  # the preview shows WB relative to it
+    from .features import FEATURE_NAMES
+    from .preview import estimate_as_shot
+    ir, ib = FEATURE_NAMES.index("wb_r"), FEATURE_NAMES.index("wb_b")
+    for i, p in enumerate(photos):  # edited before Lightroom stored "As Shot": estimate from the camera multipliers
+        if p.image_id not in as_shot:
+            est = estimate_as_shot(X[i, ir], X[i, ib], (p.exif or {}).get("camera"))
+            if est:
+                as_shot[p.image_id] = est
     project["results"] = [{"uuid": p.uuid, "path": p.path, "thumb": thumb_path(p.path),
                            "dims": list(p.dims), "base_settings": b, "settings": s,
-                           "exif": photo_exif(p), "capture": p.capture or ""}
+                           "exif": photo_exif(p), "capture": p.capture or "",
+                           "as_shot": list(as_shot[p.image_id]) if p.image_id in as_shot else None}
                           for p, b, s in zip(photos, base_settings, settings)]
     upsert_project(project)
     if progress:
@@ -391,9 +401,28 @@ def photo_exif(photo):
 
 
 def exif_for_results(catalog_path, results):
-    """{path: (exif, capture)} for results saved before 1.6 without shooting info (read from the catalog)."""
+    """{path: (exif, capture, as-shot white balance or None)} for results saved without that information (shooting
+    info before 1.6, as-shot white balance before 1.6.3), read from the catalog."""
     want = {r["path"] for r in results}
-    return {p.path: (photo_exif(p), p.capture or "") for p in lrcat.list_photos(catalog_path) if p.path in want}
+    photos = [p for p in lrcat.list_photos(catalog_path) if p.path in want]
+    shot = lrcat.as_shot_white_balance(catalog_path, photos)
+    missing = [p for p in photos if p.image_id not in shot]
+    if missing:  # estimate from the camera multipliers in the analysis cache (no re-analysis)
+        from .features import FEATURE_NAMES, FeatureCache
+        from .preview import estimate_as_shot
+        ir, ib = FEATURE_NAMES.index("wb_r"), FEATURE_NAMES.index("wb_b")
+        cache = FeatureCache()
+        try:
+            for p in missing:
+                v = cache.get(p.path, p.exif)
+                if v is not None and len(v) == len(FEATURE_NAMES):
+                    est = estimate_as_shot(v[ir], v[ib], (p.exif or {}).get("camera"))
+                    if est:
+                        shot[p.image_id] = est
+        finally:
+            cache.close()
+    return {p.path: (photo_exif(p), p.capture or "", list(shot[p.image_id]) if p.image_id in shot else None)
+            for p in photos}
 
 
 # ---------------------------------------------------------------- quick develop / re-export

@@ -16,7 +16,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QColor, QDesktopServices, QFont, QIcon, QIconEngine, QImage, QImageReader, QKeySequence, QLinearGradient, QPainter,
-    QPainterPath, QPen, QPixmap, QPixmapCache, QShortcut,
+    QColorSpace, QPainterPath, QPen, QPixmap, QPixmapCache, QShortcut, QSurfaceFormat,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog,
@@ -305,7 +305,7 @@ def square_thumb_pixmap(src, side):
         img = reader.read()
     if img.isNull():
         return canvas
-    img = img.scaled(side - 2, side - 2, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    img = for_display(img.scaled(side - 2, side - 2, Qt.KeepAspectRatio, Qt.SmoothTransformation))
     x, y = (side - img.width()) // 2, (side - img.height()) // 2
     p = QPainter(canvas)
     p.drawImage(x, y, img)
@@ -360,13 +360,94 @@ def thumb_icon(path):
     return QIcon(ThumbIconEngine(path)) if path and os.path.exists(path) else QIcon()
 
 
-def numpy_to_qpixmap(rgb_uint8):
-    if rgb_uint8 is None or rgb_uint8.size == 0:
-        return QPixmap()
+# ---------------------------------------------------------------- colour management
+# Photos, previews and thumbnails are sRGB. Untagged, Qt shows sRGB numbers as the monitor's own colours, which on a
+# wide-gamut display (Display P3 MacBooks, Adobe RGB-class monitors) makes them look much more saturated than in
+# Lightroom, which colour-manages. So every photo image is tagged sRGB, and:
+#  - macOS: main() makes the windows sRGB, and ColorSync converts them to the display (UI included);
+#  - Windows: the desktop doesn't colour-manage apps, so photo images are converted to the monitor's ICC profile here.
+
+_SRGB = []
+_DISPLAY_CS = []
+
+
+def srgb_color_space():
+    if not _SRGB:
+        _SRGB.append(QColorSpace(QColorSpace.NamedColorSpace.SRgb))
+    return _SRGB[0]
+
+
+def _windows_display_profile():
+    """Path of the primary monitor's ICC profile (Windows colour management), or None."""
+    import ctypes
+    from ctypes import wintypes
+    user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+    hdc = user32.GetDC(0)
+    try:
+        size = wintypes.DWORD(0)
+        gdi32.GetICMProfileW(hdc, ctypes.byref(size), None)
+        buf = ctypes.create_unicode_buffer(max(size.value, 260))
+        size = wintypes.DWORD(len(buf))
+        return buf.value if gdi32.GetICMProfileW(hdc, ctypes.byref(size), buf) and buf.value else None
+    finally:
+        user32.ReleaseDC(0, hdc)
+
+
+def _srgb_like(cs):
+    """True when converting sRGB to cs changes nothing visible (an sRGB monitor profile)."""
+    for col in ((255, 0, 0), (0, 255, 0), (0, 0, 255), (230, 150, 110)):
+        img = QImage(1, 1, QImage.Format_RGB32)
+        img.fill(QColor(*col))
+        img.setColorSpace(srgb_color_space())
+        c = img.convertedToColorSpace(cs).pixelColor(0, 0)
+        if max(abs(c.red() - col[0]), abs(c.green() - col[1]), abs(c.blue() - col[2])) > 3:
+            return False
+    return True
+
+
+def display_color_space():
+    """The monitor profile photo images are converted to (Windows, non-sRGB monitor), else None. Read once; off with
+    Settings ▸ Display ▸ "Colour-manage previews for this monitor"."""
+    if not _DISPLAY_CS:
+        cs = None
+        if sys.platform == "win32" and prefs.load().get("color_manage_previews", True) is not False:
+            try:
+                path = _windows_display_profile()
+                if path and os.path.isfile(path):
+                    with open(path, "rb") as f:
+                        c = QColorSpace.fromIccProfile(f.read())
+                    if c.isValid() and c.isValidTarget() and not _srgb_like(c):
+                        cs = c
+            except Exception as e:  # odd profile or API: show plain sRGB rather than fail
+                print("display profile unavailable:", e)
+        _DISPLAY_CS.append(cs)
+    return _DISPLAY_CS[0]
+
+
+def for_display(qimg):
+    """Tags a photo QImage as sRGB (if it has no colour space yet) and converts it to the monitor's profile when
+    Virten Studio has to do that itself (see display_color_space)."""
+    if not qimg.colorSpace().isValid():
+        qimg.setColorSpace(srgb_color_space())
+    cs = display_color_space()
+    if cs is not None and not qimg.isNull():
+        qimg.convertToColorSpace(cs)
+    return qimg
+
+
+def numpy_to_qimage(rgb_uint8):
+    """An sRGB-tagged QImage (its own copy of the pixels) of an RGB uint8 array."""
     rgb = np.ascontiguousarray(rgb_uint8)
     h, w, ch = rgb.shape
     qimg = QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888).copy()
-    return QPixmap.fromImage(qimg)
+    qimg.setColorSpace(srgb_color_space())
+    return qimg
+
+
+def numpy_to_qpixmap(rgb_uint8):
+    if rgb_uint8 is None or rgb_uint8.size == 0:
+        return QPixmap()
+    return QPixmap.fromImage(for_display(numpy_to_qimage(rgb_uint8)))
 
 
 def plugin_installed():
@@ -722,9 +803,10 @@ class BeforeAfterView(QWidget):
             self._overlay = (key, img)
         return self._overlay[1]
 
-    def load_photo(self, raw_path, thumb_path, settings):
+    def load_photo(self, raw_path, thumb_path, settings, as_shot=None):
         self._current = raw_path
         self._settings = settings or {}
+        self._as_shot = tuple(as_shot) if as_shot else (None, None)  # the photo's as-shot WB (the embedded preview's)
         hit = _cached_preview(raw_path) if raw_path else None
         rgb, masks = hit if hit is not None else (None, None)
         self.full_res = rgb is not None
@@ -767,7 +849,8 @@ class BeforeAfterView(QWidget):
         if self.before_rgb is not None:
             masks = self.ai_masks if self.ai_masks and next(iter(self.ai_masks.values())).shape == \
                 self.before_rgb.shape[:2] else None
-            self.after_rgb = preview.render_preview(self.before_rgb, settings or {}, ai_masks=masks)
+            self.after_rgb = preview.render_preview(self.before_rgb, settings or {}, *getattr(self, "_as_shot", (None, None)),
+                                                    ai_masks=masks)
             self.after_pix = numpy_to_qpixmap(self.after_rgb)
         else:
             self.after_rgb = None
@@ -921,7 +1004,7 @@ def look_preview_pixmap(look):
     if key not in _LOOK_PIXMAPS:
         base = {"Exposure2012": 0.0, "Temperature": 5400, "Tint": 6}
         s = looks.apply_look(base, look, 1.0) if look else base
-        _LOOK_PIXMAPS[key] = numpy_to_qpixmap(preview.render_preview(_look_sample(), s))
+        _LOOK_PIXMAPS[key] = numpy_to_qpixmap(preview.render_preview(_look_sample(), s, 5400.0, 6.0))
     return _LOOK_PIXMAPS[key]
 
 
@@ -2876,6 +2959,22 @@ class SettingsPage(Page):
         l.addLayout(hbox(button("Save", slot=self.save_update_source),
                          button("Check for updates", slot=self.check_updates), self.update_status, None))
 
+        l = self.section("Display", "Photos are sRGB. Virten Studio converts them to your monitor's colour profile, "
+                                    "like Lightroom does, so wide-gamut screens don't make previews look oversaturated.")
+        cs = display_color_space()
+        if sys.platform == "darwin":
+            state = "macOS converts Virten Studio's sRGB windows to this display."
+        elif cs is not None:
+            state = f"Converting previews to this monitor's profile: {cs.description() or 'custom profile'}."
+        else:
+            state = "This monitor uses an sRGB profile (or colour management is off): no conversion needed."
+        l.addWidget(label(state, "Muted", wrap=True))
+        if sys.platform == "win32":
+            self.color_manage = QCheckBox("Colour-manage previews for this monitor (applies after a restart)")
+            self.color_manage.setChecked(prefs.load().get("color_manage_previews", True) is not False)
+            self.color_manage.toggled.connect(lambda on: prefs.save(color_manage_previews=bool(on)))
+            l.addWidget(self.color_manage)
+
         upd = getattr(self.main, "_update", None)
         try:
             from . import vision
@@ -3583,7 +3682,7 @@ class ProjectDetail(QWidget):
     def _fetch_exif(self, p):
         """Projects from before 1.6 didn't save shooting info: read it from the catalog in the background, once."""
         res = p.get("results") or []
-        if not res or all("exif" in r for r in res) or not os.path.exists(p.get("catalog") or ""):
+        if not res or all("exif" in r and "as_shot" in r for r in res) or not os.path.exists(p.get("catalog") or ""):
             return
         start_worker(self, _plain(proj.exif_for_results), p["catalog"], res,
                      on_done=lambda found, pid=p["id"]: self._exif_loaded(pid, found),
@@ -3594,14 +3693,18 @@ class ProjectDetail(QWidget):
         for p in (fresh, self.project if (self.project or {}).get("id") == pid else None):
             for r in (p or {}).get("results") or []:
                 if r["path"] in found:
-                    r["exif"], cap = found[r["path"]]
+                    exif, cap, shot = found[r["path"]]
+                    r.setdefault("exif", exif)
                     r.setdefault("capture", cap)
+                    r.setdefault("as_shot", shot)
                 else:
                     r.setdefault("exif", {})
+                    r.setdefault("as_shot", None)
         if fresh:
             proj.upsert_project(fresh)
         if (self.project or {}).get("id") == pid:
             self._update_info(self.grid.currentRow())
+            self.show_settings(self.grid.currentRow())  # re-render with the as-shot white balance
 
     def set_view_mode(self, mode):
         self.loupe.set_mode(mode)
@@ -3993,7 +4096,7 @@ class ProjectDetail(QWidget):
             self._update_cull_strip(r)
         else:
             s = self._preview_settings_for_item(r) if self.reexport_btn.isEnabled() else r["settings"]
-            self.loupe.load_photo(r["path"], r.get("thumb"), s)
+            self.loupe.load_photo(r["path"], r.get("thumb"), s, as_shot=r.get("as_shot"))
             self.hist_widget.set_image(self.loupe.after_rgb)
             self.inspector.show_develop(s)
             self._update_readouts(s)
@@ -4435,6 +4538,10 @@ def main():
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("AngelitoJusay.VirtenStudio")
         except (AttributeError, OSError):
             pass
+    if sys.platform == "darwin":  # sRGB windows: macOS converts them to the (often Display P3) screen
+        fmt = QSurfaceFormat.defaultFormat()
+        fmt.setColorSpace(srgb_color_space())
+        QSurfaceFormat.setDefaultFormat(fmt)
     app = QApplication(sys.argv)
     app.setApplicationName("Virten Studio")
     app.setStyleSheet(STYLE)

@@ -53,6 +53,15 @@ offer it.
 - **Editing:** brightness/color statistics of the camera preview, camera white balance, EXIF, the people in the frame (MediaPipe segmentation), faces, blinks and sharpness, and a CLIP "scene" description (ceremony, dance floor, portrait…).
 - **Hardware:** photo analysis runs in parallel on all CPU cores. CLIP runs on the GPU (DirectML on Windows, CoreML on Apple Silicon), falling back to the CPU automatically.
 
+## How close the preview is to Lightroom
+- The Before / After preview renders your edits on the camera's embedded preview, calibrated against Lightroom
+  Classic's own renders of 274 real photos (`dev-tools/calibrate_preview.py`). White balance is shown relative to each
+  photo's as-shot white balance. Tone sliders work on luminance, Vibrance protects skin, and saturation rolls off
+  softly at the edge of the colour space instead of clipping. It's a preview: Lightroom's own render is the final word.
+- **Colour-managed display:** previews and thumbnails are sRGB. On a wide-gamut monitor (Display P3, Adobe RGB-class)
+  Virten Studio converts them to the monitor's colour profile, like Lightroom does, so they don't look oversaturated.
+  On Windows this uses the monitor profile set in Windows' Color Management. Turn it off under **Settings ▸ Display**.
+
 ## Where things live
 | | Windows | macOS |
 |---|---|---|

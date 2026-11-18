@@ -1,4 +1,4 @@
-THIRD-PARTY NOTICES FOR VIRTEN STUDIO 1.6.2
+THIRD-PARTY NOTICES FOR VIRTEN STUDIO 1.6.3
 
 Virten Studio includes the open-source software and AI models below. Each is licensed for redistribution in free and
 commercial software, including software whose author accepts optional donations. Their copyright notices and licence

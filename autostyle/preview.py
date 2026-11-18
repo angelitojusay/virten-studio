@@ -3,9 +3,16 @@
 Approximates Lightroom Classic's 2012 Process Version sliders on the embedded JPEG preview with NumPy and OpenCV,
 so the user can visually inspect Before/After edits, Looks, and Lightroom tweaks inside Virten Studio.
 
-Rendered, in order: exposure, white balance, tone sliders, point curves (one per-channel lookup table), B&W (with the
-8-band B&W mix), vibrance and saturation, the 8-band HSL color mixer, split toning, local corrections in linear-gradient
-masks (Mask/Gradient, e.g. a Look's light leak) and in AI masks, the post-crop vignette and luminance grain.
+Rendered, in order: exposure and white balance (linear light, relative to the photo's as-shot white balance), the
+tone sliders, parametric and point curves (computed on luminance, with Lightroom-like chroma coupling), clarity and
+texture, B&W (with the 8-band B&W mix), skin-protected vibrance and soft-knee saturation, the 8-band HSL color mixer,
+split toning / color grading, local corrections in linear-gradient masks (Mask/Gradient, e.g. a Look's light leak) and in
+AI masks, the post-crop vignette and luminance grain. Chroma that would leave the sRGB gamut is compressed softly, so
+saturated and bright warm tones don't clip into neon.
+
+The strengths are the CAL constants, fitted against Lightroom Classic's own rendered previews of real edited photos
+(dev-tools/calibrate_preview.py). The base image is the camera's embedded JPEG: close to Lightroom's default rendering
+(measured: ~5 % more chroma), and much faster than demosaicing the RAW.
 
 AI masks (subject, background, sky, skin) are *simulated* for the preview by compute_ai_masks() (people segmentation
 plus a sky heuristic); Lightroom computes its own, more precise selections when the edits are applied.
@@ -31,66 +38,262 @@ def _build_curve_lut(points):
     return np.clip(lut, 0, 255).astype(np.uint8)
 
 
-def _per_channel(rgb_uint8, settings, baseline_temp, baseline_tint):
-    """Steps 1-4 (exposure, white balance, tone sliders, point curves): each output channel depends only on the
-    same input channel. Returns float32 0..1."""
-    img = rgb_uint8.astype(np.float32) / 255.0
+# Calibration constants. Measured against Lightroom Classic's own rendered previews of 274 real photos from six shoots
+# (dev-tools/calibrate_preview.py; one shoot held out): exposure, white balance, tint, tone and contrast strengths
+# were fitted; saturation, HSL and vibrance follow Lightroom's documented range (-100 removes colour, +100 roughly
+# doubles it); the couplings follow its behaviour (tone changes carry ~60 % into chroma; Contrast adds a little
+# saturation). Held-out shoot: median colour difference dE 7.8 -> 5.1, saturation 0.98x and skin 0.99x Lightroom's.
+CAL = {
+    "exp_k": 0.663,      # Exposure: stops per Exposure unit, in linear light (Lightroom rolls highlights off)
+    "wb_k": 0.682,       # White balance: log2 gain on red / blue per 100 mired from the as-shot white balance
+    "tint_k": 0.278,     # Tint: log2 gain on green per 100 Tint units
+    "tone_k": 1.184,     # Highlights / Shadows / Whites / Blacks amplitude
+    "con_k": 0.351,      # Contrast: midtone slope change per 100
+    "con_sat": 0.3,      # Contrast also lifts saturation (as in Lightroom): chroma gain per +100 Contrast
+    "chroma_c": 0.6,     # how much a tone change carries into chroma (0 = keep chroma, 1 = scale chroma like RGB)
+    "curve_c": 0.9,      # the same for the point / parametric curves (Lightroom applies those closer to RGB)
+    "param_k": 0.18,     # parametric curve region amplitude at +-100
+    "vib_k": 1.0,        # Vibrance: chroma gain at +100 on a fully muted colour (less on saturated colours and skin)
+    "vib_skin": 0.6,     # how much Vibrance holds back on skin hues (10-45 degrees)
+    "sat_k": 1.0,        # Saturation: chroma gain at +100 (rolls off at the gamut edge)
+    "knee": 0.85,        # soft-knee start: share of the sRGB gamut where added chroma starts to compress
+    "hsl_sat_k": 1.0,    # HSL saturation: chroma factor change at +-100 (-100 removes the band's colour)
+    "hsl_lum_k": 0.35,   # HSL luminance: up to +-35 % lighter / darker at +-100
+    "split_k": 0.22,     # split toning / color grading tint strength at saturation 100
+}
+_GAMMA = 2.2
 
-    # 1. Exposure2012
-    exp = float(settings.get("Exposure2012", 0.0) or 0.0)
-    if abs(exp) > 1e-3:
-        gain = 2.0 ** (exp * 0.85)
-        img = np.power(np.clip(img, 0.0, 1.0), 2.2) * gain
-        img = np.power(np.clip(img, 0.0, 1.0), 1.0 / 2.2)
+# As-shot white balance from the camera's own WB multipliers (r/g, b/g), per camera model, for photos whose catalog
+# doesn't hold Lightroom's "As Shot" value (edited before Lightroom computed it): mired = a + b ln(r/g) + c ln(b/g),
+# Tint likewise. Fitted on Lightroom's As Shot values of 389 photos (median error 10 mired / 4 Tint on held-out shoots).
+AS_SHOT_MODELS = {"ILCE-1": ((354.363, -231.309, 51.571), (-158.901, 138.342, 113.994))}
 
-    # 2. White Balance
-    temp = settings.get("Temperature")
-    tint = settings.get("Tint")
-    if isinstance(temp, (int, float)) and temp > 1000:
-        mired_shift = (1e6 / baseline_temp) - (1e6 / float(temp))
-        t_norm = np.clip(mired_shift / 70.0, -0.35, 0.35)
-        img[..., 0] *= (1.0 + t_norm * 0.45)
-        img[..., 2] *= (1.0 - t_norm * 0.45)
-    if isinstance(tint, (int, float)):
-        g_norm = np.clip((float(tint) - baseline_tint) / 100.0, -0.30, 0.30)
-        img[..., 1] *= (1.0 - g_norm * 0.35)
 
-    img = np.clip(img, 0.0, 1.0)
+def estimate_as_shot(wb_r, wb_b, camera):
+    """(Temperature, Tint) Lightroom would call "As Shot" for these camera multipliers, or None (unknown camera)."""
+    model = AS_SHOT_MODELS.get(camera or "")
+    try:
+        lr, lb = float(np.log(float(wb_r))), float(np.log(float(wb_b)))
+    except (TypeError, ValueError):
+        return None
+    if not model or not np.isfinite(lr) or not np.isfinite(lb):
+        return None
+    (a, b, c), (d, e, f) = model
+    mired = a + b * lr + c * lb
+    if not 80.0 < mired < 600.0:
+        return None
+    return round(1e6 / mired), round(d + e * lr + f * lb)
 
-    # 3. Tone Sliders
+
+def _shoulder(x, gain):
+    """Soft highlight roll-off for linear values a gain pushes past white (Lightroom doesn't hard-clip exposure or
+    white balance). Fades in as the gain rises above 1, so an unchanged channel stays exactly as it was."""
+    w = float(np.clip((gain - 1.0) / 0.5, 0.0, 1.0))
+    if w <= 0.0:
+        return np.minimum(x, 1.0)
+    soft = np.where(x < 0.8, x, 0.8 + 0.2 * np.tanh((x - 0.8) / 0.2))
+    return (1.0 - w) * np.minimum(x, 1.0) + w * soft
+
+
+def _wb_exposure_gains(settings, as_shot_temp, as_shot_tint):
+    """Linear-light (R, G, B) gains for Exposure2012 and Temperature / Tint relative to the as-shot white balance
+    (the embedded preview is already balanced as shot). Grey keeps its luminance; unknown as-shot = no WB change."""
+    gr = gg = gb = 1.0
+    temp, tint = settings.get("Temperature"), settings.get("Tint")
+    if isinstance(temp, (int, float)) and temp > 1000 and as_shot_temp:
+        dm = 1e6 / float(temp) - 1e6 / float(as_shot_temp)  # + = a cooler setting than as shot (more blue)
+        gr *= 2.0 ** (-CAL["wb_k"] * dm / 100.0)
+        gb *= 2.0 ** (CAL["wb_k"] * dm / 100.0)
+    if isinstance(tint, (int, float)) and as_shot_tint is not None:
+        gg *= 2.0 ** (-CAL["tint_k"] * (float(tint) - float(as_shot_tint)) / 100.0)  # + tint = magenta = less green
+    norm = 0.2126 * gr + 0.7152 * gg + 0.0722 * gb
+    e = 2.0 ** (float(settings.get("Exposure2012", 0.0) or 0.0) * CAL["exp_k"])
+    return e * gr / norm, e * gg / norm, e * gb / norm
+
+
+def _per_channel_lut(settings, as_shot_temp, as_shot_tint):
+    """Exposure and white balance as a (1, 256, 3) float lookup table: each channel is independent here."""
+    x = np.arange(256, dtype=np.float32) / 255.0
+    lin = x ** _GAMMA
+    gains = _wb_exposure_gains(settings, as_shot_temp, as_shot_tint)
+    chans = [np.clip(_shoulder(lin * np.float32(g), g), 0.0, 1.0) ** (1.0 / _GAMMA) for g in gains]
+    return np.stack(chans, axis=-1).astype(np.float32).reshape(1, 256, 3)
+
+
+def _bump(x, centre, width):
+    return np.clip(1.0 - np.abs(x - centre) / width, 0.0, 1.0) ** 2 * (3 - 2 * np.clip(1.0 - np.abs(x - centre) / width, 0.0, 1.0))
+
+
+def _tone_curves(settings):
+    """(sliders curve, point+parametric curve) as 1024-step tables on 0..1 luminance, or None when untouched."""
+    x = np.linspace(0.0, 1.0, 1024, dtype=np.float32)
     hi = float(settings.get("Highlights2012", 0.0) or 0.0) / 100.0
     sh = float(settings.get("Shadows2012", 0.0) or 0.0) / 100.0
     wh = float(settings.get("Whites2012", 0.0) or 0.0) / 100.0
     bl = float(settings.get("Blacks2012", 0.0) or 0.0) / 100.0
     con = float(settings.get("Contrast2012", 0.0) or 0.0) / 100.0
-
+    sliders = None
     if any(abs(v) > 1e-3 for v in (hi, sh, wh, bl, con)):
-        x = np.linspace(0.0, 1.0, 256, dtype=np.float32)
-        sh_mask = np.power(1.0 - x, 2.2) * x * 3.2
-        hi_mask = np.power(x, 2.2) * (1.0 - x) * 3.2
-        bl_mask = np.power(1.0 - x, 3.5)
-        wh_mask = np.power(x, 3.5)
-
-        y = x + (sh * 0.22 * sh_mask) + (hi * 0.22 * hi_mask) + (wh * 0.14 * wh_mask) + (bl * 0.14 * bl_mask)
+        k = CAL["tone_k"]
+        y = (x + k * (sh * 0.22 * (1.0 - x) ** 2.2 * x * 3.2 + hi * 0.22 * x ** 2.2 * (1.0 - x) * 3.2
+                      + wh * 0.14 * x ** 3.5 + bl * 0.14 * (1.0 - x) ** 3.5))
         if abs(con) > 1e-3:
-            y = 0.5 + (y - 0.5) * (1.0 + con * 0.45) - 0.04 * con * np.sin(2.0 * np.pi * y)
-        lut = np.clip(y * 255.0, 0, 255).astype(np.uint8)
-        img_u8 = (img * 255.0).astype(np.uint8)
-        img = cv2.LUT(img_u8, lut).astype(np.float32) / 255.0
+            y = 0.5 + (y - 0.5) * (1.0 + con * CAL["con_k"]) - 0.04 * con * np.sin(2.0 * np.pi * y)
+        sliders = np.clip(y, 0.0, 1.0)
+    # Parametric curve: four regions split at ShadowSplit / MidtoneSplit / HighlightSplit (Lightroom's defaults 25/50/75)
+    regions = [float(settings.get(k, 0.0) or 0.0) / 100.0 for k in
+               ("ParametricShadows", "ParametricDarks", "ParametricLights", "ParametricHighlights")]
+    curve = None
+    if any(abs(v) > 1e-3 for v in regions):
+        s1 = float(settings.get("ParametricShadowSplit", 25) or 25) / 100.0
+        s2 = float(settings.get("ParametricMidtoneSplit", 50) or 50) / 100.0
+        s3 = float(settings.get("ParametricHighlightSplit", 75) or 75) / 100.0
+        centres = (s1 / 2, (s1 + s2) / 2, (s2 + s3) / 2, (s3 + 1) / 2)
+        widths = (s1, (s2 - s1), (s3 - s2), (1 - s3))
+        y = x.copy()
+        for amt, c, w in zip(regions, centres, widths):
+            y = y + CAL["param_k"] * amt * _bump(x, c, max(w * 1.6, 0.08))
+        curve = np.clip(y, 0.0, 1.0)
+    pts = settings.get("ToneCurvePV2012")
+    if isinstance(pts, list) and len(pts) >= 4 and pts != [0, 0, 255, 255]:
+        lut = _build_curve_lut(pts).astype(np.float32) / 255.0
+        base = curve if curve is not None else x
+        curve = np.interp(base, np.linspace(0, 1, 256, dtype=np.float32), lut).astype(np.float32)
+    return sliders, curve
 
-    # 4. Custom Point Tone Curve
-    for idx, key in ((None, "ToneCurvePV2012"), (0, "ToneCurvePV2012Red"),
-                     (1, "ToneCurvePV2012Green"), (2, "ToneCurvePV2012Blue")):
+
+def _gamut_use(y, d):
+    """Per pixel: the share of the sRGB gamut used along the pixel's chroma direction (1 = a channel at 0 or 1)."""
+    dmax = np.maximum(np.maximum(d[0], d[1]), d[2])  # the channel furthest above the luminance...
+    dmin = np.minimum(np.minimum(d[0], d[1]), d[2])  # ...and the one furthest below it
+    return np.maximum(dmax / np.maximum(1.0 - y, np.float32(1e-6)), -dmin / np.maximum(y, np.float32(1e-6)))
+
+
+def _soft_chroma(y, d, u_before, u=None):
+    """Scales chroma back where it was pushed past the soft knee (or past what the pixel already had), with a tanh
+    roll-off, so added saturation approaches the gamut boundary smoothly instead of clipping. Hue and luminance stay."""
+    if u is None:
+        u = _gamut_use(y, d)
+    ceiling = np.float32(0.985)  # added chroma levels off just inside the gamut: no channel is driven to 0 or 255
+    limit = np.minimum(np.maximum(u_before, np.float32(CAL["knee"])), ceiling)
+    over = u > limit
+    if not over.any():
+        return d
+    room = np.maximum(ceiling - limit[over], 1e-3)
+    s = np.ones_like(u)
+    uo = u[over]
+    s[over] = (limit[over] + room * np.tanh((uo - limit[over]) / room)) / np.maximum(uo, 1e-6)
+    return [dc * s for dc in d]
+
+
+_STEPS = 4096
+_XS = np.linspace(0.0, 1.0, _STEPS, dtype=np.float32)
+
+
+def _index(a):
+    """4096-step table index of 0..1 values."""
+    return np.clip(a * np.float32(_STEPS - 1) + np.float32(0.5), 0, _STEPS - 1).astype(np.int32)
+
+
+def _apply_tone(planes, settings):
+    """Tone sliders and curves on luminance; chroma follows by (Y'/Y) ** coupling (plus Contrast's saturation lift).
+    Both depend only on the input luminance, so they're 4096-step tables. Channel point curves per channel."""
+    sliders, curve = _tone_curves(settings)
+    if sliders is not None or curve is not None:
+        grid = np.linspace(0.0, 1.0, 1024, dtype=np.float32)
+        y1t = np.interp(_XS, grid, sliders).astype(np.float32) if sliders is not None else _XS
+        y2t = np.interp(y1t, grid, curve).astype(np.float32) if curve is not None else y1t
+        eps = np.float32(0.02)
+        kt = (((y1t + eps) / (_XS + eps)) ** np.float32(CAL["chroma_c"])
+              * ((y2t + eps) / (y1t + eps)) ** np.float32(CAL["curve_c"])).astype(np.float32)
+        con = float(settings.get("Contrast2012", 0.0) or 0.0) / 100.0
+        if abs(con) > 1e-3:
+            kt *= np.float32(max(0.0, 1.0 + con * CAL["con_sat"]))
+        y = np.clip(_luma709(planes), 0.0, 1.0)
+        d = [c - y for c in planes]
+        u0 = _gamut_use(y, d)
+        idx = _index(y)
+        y2 = y2t[idx]
+        k = kt[idx]
+        d = _soft_chroma(y2, [dc * k for dc in d], u0)
+        planes = [np.clip(y2 + dc, 0.0, 1.0) for dc in d]
+        if curve is not None:  # like Lightroom's per-channel point curve: no channel leaves the curve's output range
+            top, bottom = float(curve[-1]), float(curve[0])
+            if top < 0.999 or bottom > 0.001:
+                knee = max(top - 0.03, bottom)
+                room = max(top - knee, 1e-3)
+                ceil = np.where(_XS > knee, knee + room * np.tanh((_XS - knee) / room), _XS)
+                ceil = np.maximum(ceil, np.float32(bottom)).astype(np.float32)
+                planes = [ceil[_index(c)] for c in planes]
+    for idx_c, key in ((0, "ToneCurvePV2012Red"), (1, "ToneCurvePV2012Green"), (2, "ToneCurvePV2012Blue")):
         pts = settings.get(key)
         if isinstance(pts, list) and len(pts) >= 4 and pts != [0, 0, 255, 255]:
-            lut = _build_curve_lut(pts)
-            if lut is not None:
-                u8 = (np.clip(img, 0.0, 1.0) * 255.0).astype(np.uint8)
-                if idx is None:
-                    img = cv2.LUT(u8, lut).astype(np.float32) / 255.0
-                else:
-                    img[..., idx] = cv2.LUT(u8[..., idx], lut).astype(np.float32) / 255.0
-    return img
+            lut = _build_curve_lut(pts).astype(np.float32) / 255.0
+            planes[idx_c] = np.interp(planes[idx_c], np.linspace(0, 1, 256, dtype=np.float32), lut).astype(np.float32)
+    return planes
+
+
+def _hue_deg(planes):
+    r, g, b = planes
+    return cv2.phase(2.0 * r - g - b, np.float32(np.sqrt(3.0)) * (g - b), angleInDegrees=True)
+
+
+def _apply_vibrance_saturation(planes, settings):
+    """Vibrance boosts muted colours most and holds back on skin hues (10-45 degrees); Saturation is an even chroma gain.
+    Both end in the soft knee, so already-saturated colours roll off instead of clipping."""
+    vib = float(settings.get("Vibrance", 0.0) or 0.0) / 100.0
+    sat = float(settings.get("Saturation", 0.0) or 0.0) / 100.0
+    if abs(vib) < 1e-3 and abs(sat) < 1e-3:
+        return planes
+    y = np.clip(_luma709(planes), 0.0, 1.0)
+    d = [c - y for c in planes]
+    u0 = _gamut_use(y, d)
+    factor = np.float32(max(0.0, 1.0 + sat * CAL["sat_k"]))
+    if abs(vib) > 1e-3:
+        mx = np.maximum(np.maximum(planes[0], planes[1]), planes[2])
+        mn = np.minimum(np.minimum(planes[0], planes[1]), planes[2])
+        hsv_sat = (mx - mn) / np.maximum(mx, 1e-3)
+        muted = np.clip(1.0 - hsv_sat, 0.0, 1.0)
+        h = _hue_deg(planes)
+        skin = np.clip(np.minimum((h - 5.0) / 10.0, (50.0 - h) / 10.0), 0.0, 1.0)  # 1 within 15-40 deg, ramps to 5 / 50
+        w = muted * (1.0 - np.float32(CAL["vib_skin"]) * skin)
+        factor = factor * np.maximum(0.0, 1.0 + np.float32(vib * CAL["vib_k"]) * w)
+    d = [dc * factor for dc in d]
+    d = _soft_chroma(y, d, u0, u0 * factor)  # a chroma scale scales the gamut share alike
+    return [np.clip(y + dc, 0.0, 1.0) for dc in d]
+
+
+def _apply_toning(planes, settings):
+    """Split toning and color grading (shadows / midtones / highlights / global tints): a blend toward the tint colour,
+    weighted by tone; stays inside 0..1."""
+    lum = _luma709(planes)
+    zones = []
+    for hue_k, sat_k, zone in (("SplitToningShadowHue", "SplitToningShadowSaturation", "shadows"),
+                               ("SplitToningHighlightHue", "SplitToningHighlightSaturation", "highlights"),
+                               ("ColorGradeMidtoneHue", "ColorGradeMidtoneSat", "midtones"),
+                               ("ColorGradeGlobalHue", "ColorGradeGlobalSat", "global")):
+        amount = float(settings.get(sat_k, 0.0) or 0.0) / 100.0
+        if amount > 0.01:
+            zones.append((amount, float(settings.get(hue_k, 0.0) or 0.0), zone))
+    if not zones:
+        return planes
+    tmp = np.empty_like(lum)
+    for amount, hue, zone in zones:
+        tint_rgb = _hue_to_rgb(hue)
+        if zone == "shadows":
+            w = 1.0 - lum * 1.6
+        elif zone == "highlights":
+            w = (lum - 0.4) * 1.6
+        elif zone == "midtones":
+            w = 1.0 - np.abs(lum - 0.5) * 2.2
+        else:
+            w = np.ones_like(lum)
+        w = np.clip(w, 0.0, 1.0) * np.float32(amount * CAL["split_k"])
+        for i, c in enumerate(planes):  # c += w * (tint - c)
+            np.subtract(tint_rgb[i], c, out=tmp)
+            tmp *= w
+            c += tmp
+    return planes
 
 
 @lru_cache(maxsize=8)
@@ -120,8 +323,8 @@ def _hsl_tables(settings):
     hue, sat, lum = (np.interp(hues, centres, np.array(row + [row[0]], np.float32)) for row in vals)
     hue_steps = np.round(hue * 30.0 * (256.0 / 360.0)).astype(np.int64) % 256  # ±100 moves the hue about ±30°
     return (hue_steps.astype(np.uint8).reshape(1, 256),
-            np.clip(1.0 + sat, 0.0, 2.0).astype(np.float32).reshape(1, 256),  # -100 removes colour, +100 doubles it
-            (lum * 0.35).astype(np.float32).reshape(1, 256))                  # ±100: up to ±35 % lighter/darker
+            np.clip(1.0 + sat * CAL["hsl_sat_k"], 0.0, 2.5).astype(np.float32).reshape(1, 256),  # -100: no colour
+            (lum * CAL["hsl_lum_k"]).astype(np.float32).reshape(1, 256))
 
 
 def _apply_hsl(planes, tables):
@@ -131,7 +334,12 @@ def _apply_hsl(planes, tables):
     h, s, v = cv2.split(cv2.cvtColor(rgb8, cv2.COLOR_RGB2HSV_FULL))
     h2 = np.add(h, cv2.LUT(h, hue_steps), dtype=np.uint8)  # uint8 addition wraps round the colour wheel
     s_f = s.astype(np.float32)
-    v2 = v.astype(np.float32) * (1.0 + cv2.LUT(h, lum_shift) * s_f * np.float32(1 / 255))  # greys don't change
+    v_f = v.astype(np.float32)
+    v2 = v_f * (1.0 + cv2.LUT(h, lum_shift) * s_f * np.float32(1 / 255))  # greys don't change
+    # Brightened colours approach white softly instead of clipping (unchanged pixels stay exactly as they were).
+    limit = np.maximum(v_f, np.float32(235.0))
+    room = np.maximum(np.float32(254.0) - limit, np.float32(1.0))
+    v2 = np.where(v2 > limit, limit + room * np.tanh((v2 - limit) / room), v2)
     s2 = s_f * cv2.LUT(h, sat_factor)
     hsv = cv2.merge([h2, cv2.convertScaleAbs(s2), cv2.convertScaleAbs(v2)])
     rgb = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB_FULL)
@@ -315,18 +523,24 @@ def _luma709(planes):
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
-def render_preview(rgb_uint8, settings, baseline_temp=5400.0, baseline_tint=6.0, ai_masks=None):
-    """Applies a Lightroom develop settings dict to an HxWx3 RGB uint8 image.
+def render_preview(rgb_uint8, settings, baseline_temp=None, baseline_tint=None, ai_masks=None):
+    """Applies a Lightroom develop settings dict to an HxWx3 sRGB uint8 image (the camera's embedded preview).
+    baseline_temp / baseline_tint: the photo's as-shot white balance (Lightroom's "As Shot" Temperature / Tint), which
+    the embedded preview already has; Temperature / Tint are shown relative to it. None: the white balance is shown
+    as shot (unknown as-shot white balance, or settings that keep it).
     ai_masks: compute_ai_masks() of this image, to preview AI-mask corrections (skipped when None).
-    Returns a rendered HxWx3 RGB uint8 image."""
+    Returns a rendered HxWx3 sRGB uint8 image."""
     if not settings or rgb_uint8 is None or rgb_uint8.size == 0:
         return rgb_uint8
+    if settings.get("WhiteBalance") == "As Shot":
+        baseline_temp, baseline_tint = settings.get("Temperature"), settings.get("Tint")
 
-    # Steps 1-4 as a per-channel lookup table (float, so nothing is rounded before the later steps).
-    lut = _per_channel(_RAMP, settings, baseline_temp, baseline_tint).reshape(1, 256, 3)
+    # Exposure and white balance as a per-channel lookup table (float, so nothing is rounded before later steps).
+    lut = _per_channel_lut(settings, baseline_temp, baseline_tint)
     img = cv2.LUT(np.ascontiguousarray(rgb_uint8), np.ascontiguousarray(lut, dtype=np.float32))
     # The remaining steps mix channels: work on separate contiguous planes (much faster than strided slices).
     planes = list(cv2.split(img))
+    planes = _apply_tone(planes, settings)
 
     # 4b. Clarity (midtone local contrast, large radius) and Texture (fine detail, small radius): unsharp masks on
     # the luminance, added to every channel so colours don't shift. A simulation of Lightroom's local contrast.
@@ -352,44 +566,16 @@ def render_preview(rgb_uint8, settings, baseline_temp=5400.0, baseline_tint=6.0,
             lum = lum * (1.0 + cv2.LUT(h, mix) * s.astype(np.float32) * np.float32(1 / 255))
         planes = [lum, lum.copy(), lum.copy()]  # separate arrays: later steps work in place
     else:
-        # 6. Vibrance & Saturation
-        vib = float(settings.get("Vibrance", 0.0) or 0.0) / 100.0
-        sat = float(settings.get("Saturation", 0.0) or 0.0) / 100.0
-        if abs(vib) > 1e-3 or abs(sat) > 1e-3:
-            r, g, b = planes
-            lum = _luma709(planes)
-            cur_sat = cv2.max(cv2.max(r, g), b) - cv2.min(cv2.min(r, g), b)
-            gain = np.clip(cur_sat * 1.5, 0.0, 1.0)
-            gain = np.float32(max(0.0, 1.0 + sat)) * (1.0 + np.float32(vib) * (1.0 - gain))
-            for c in planes:
-                c -= lum
-                c *= gain
-                c += lum
-                np.clip(c, 0.0, 1.0, out=c)
+        # 6. Vibrance (skin-protected, muted-weighted) & Saturation (soft knee)
+        planes = _apply_vibrance_saturation(planes, settings)
 
         # 6b. HSL / Color Mixer
         tables = _hsl_tables(settings)
         if tables is not None:
             planes = _apply_hsl(planes, tables)
 
-        # 7. Split Toning (a blend toward the tint colour stays within 0..1, so no clipping needed)
-        sh_sat = float(settings.get("SplitToningShadowSaturation", 0.0) or 0.0) / 100.0
-        hi_sat = float(settings.get("SplitToningHighlightSaturation", 0.0) or 0.0) / 100.0
-        if sh_sat > 0.01 or hi_sat > 0.01:
-            lum = _luma709(planes)
-            tmp = np.empty_like(lum)
-            for amount, hue_key, shadows in ((sh_sat, "SplitToningShadowHue", True),
-                                             (hi_sat, "SplitToningHighlightHue", False)):
-                if amount <= 0.01:
-                    continue
-                tint_rgb = _hue_to_rgb(float(settings.get(hue_key, 0.0) or 0.0))
-                w = (1.0 - lum * 1.6) if shadows else ((lum - 0.4) * 1.6)
-                np.clip(w, 0.0, 1.0, out=w)
-                w *= np.float32(amount * 0.22)
-                for i, c in enumerate(planes):  # c += w * (tint - c)
-                    np.subtract(tint_rgb[i], c, out=tmp)
-                    tmp *= w
-                    c += tmp
+        # 7. Split toning / color grading
+        planes = _apply_toning(planes, settings)
 
     # 7b. Local corrections: linear gradients (a Look's light leak) and simulated AI masks (subject, sky...)
     if settings.get("MaskGroupBasedCorrections"):

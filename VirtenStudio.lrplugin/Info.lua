@@ -13,5 +13,5 @@ return {
 	LrExportMenuItems = {
 		{ title = 'Apply Virten Studio Edits...', file = 'ApplyEdits.lua' },
 	},
-	VERSION = { major = 1, minor = 6, revision = 2, build = 1 },
+	VERSION = { major = 1, minor = 6, revision = 3, build = 1 },
 }

@@ -199,6 +199,37 @@ def step_snapshots(catalog_path, step_name):
     return {img: t for img, t in ((img, _step_text(text)) for img, text in rows) if t}
 
 
+def as_shot_white_balance(catalog_path, photos):
+    """{image id: (Temperature, Tint)} of the photos' as-shot white balance, as Lightroom computed it: from the current
+    settings when they're still "As Shot", else from the earliest history step that was (usually the import)."""
+    out, todo = {}, set()
+    for p in photos:
+        s = p.settings or {}
+        if s.get("WhiteBalance") == "As Shot" and isinstance(s.get("Temperature"), (int, float)):
+            out[p.image_id] = (float(s["Temperature"]), float(s.get("Tint", 0) or 0))
+        else:
+            todo.add(p.image_id)
+    if todo:
+        try:  # optional information for the preview: never let it fail a project run
+            con = connect(catalog_path)
+        except sqlite3.Error:
+            return out
+        try:
+            rows = con.execute("select image, text from Adobe_libraryImageDevelopHistoryStep order by dateCreated")
+            for img, text in rows:
+                if img not in todo or img in out:
+                    continue
+                t = _step_text(text)
+                s = parse_settings(t) if t and "As Shot" in t else None
+                if s and s.get("WhiteBalance") == "As Shot" and isinstance(s.get("Temperature"), (int, float)):
+                    out[img] = (float(s["Temperature"]), float(s.get("Tint", 0) or 0))
+        except sqlite3.Error:
+            pass
+        finally:
+            con.close()
+    return out
+
+
 def list_photos(catalog_path):
     con = connect(catalog_path)
     try:
