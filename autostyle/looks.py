@@ -56,7 +56,17 @@ def list_looks():
 
 
 def get_look(name):
-    return next((l for l in list_looks() if l["name"] == name), None)
+    """The Look called name, or whose former name (its "aliases") it is, so projects and saved choices made before a
+    built-in Look was renamed keep resolving."""
+    all_looks = list_looks()
+    return (next((l for l in all_looks if l["name"] == name), None)
+            or next((l for l in all_looks if name in (l.get("aliases") or [])), None))
+
+
+def canonical_name(name):
+    """The current name for a Look name (old built-in names map to their new ones); unknown names stay as they are."""
+    look = get_look(name) if name else None
+    return look["name"] if look else name
 
 
 def save_user_look(look):

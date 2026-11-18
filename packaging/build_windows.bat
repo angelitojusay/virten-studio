@@ -12,6 +12,8 @@ copy /y icon.ico packaging\icon.ico >nul
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm packaging\autostyle.spec || goto :fail
+rem Licence gate: no GPL-only or excluded components, licence files present, every bundled package in the notices
+".venv\Scripts\python.exe" packaging\check_bundle.py "dist\Virten Studio" || goto :fail
 
 for /f "usebackq delims=" %%v in (`.venv\Scripts\python.exe -c "import sys; sys.path.insert(0, '.'); from autostyle import __version__; print(__version__)"`) do set VERSION=%%v
 if "%VERSION%"=="" (echo Could not read the version. & goto :fail)

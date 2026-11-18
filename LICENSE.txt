@@ -1,0 +1,37 @@
+VIRTEN STUDIO END-USER LICENSE AGREEMENT (EULA) & TERMS OF USE
+
+Last Updated: November 2026
+Copyright (c) 2026 Angelito Jusay. All rights reserved, except as granted below.
+
+IMPORTANT - READ CAREFULLY: By installing, copying, or using the Virten Studio desktop application, including its Lightroom Classic plug-in ("Software"), you agree to be bound by the terms of this Agreement. If you do not agree to the terms of this Agreement, do not install or use the Software.
+
+1. GRANT OF LICENSE
+The Software is provided free of charge. You are granted a personal, non-exclusive, non-transferable, revocable license to install and use the Software on computers you own or control, for lawful personal or professional photo-editing and culling purposes. You may not sell, rent, or sublicense the Software, or distribute modified copies of it, except as the open-source licenses in Section 4 allow for the components they cover.
+
+2. ACCEPTABLE USE & USER RESPONSIBILITY FOR PHOTOS, CATALOGS AND PRESETS
+The Software reads your photo catalogs and image files on your computer, learns editing profiles from edits in those catalogs, and writes edit instructions that its plug-in applies inside Adobe Lightroom Classic.
+(a) You represent that you own, or have permission to use, the photos, catalogs, and edits you process with the Software.
+(b) Lightroom presets you import as Looks remain subject to their own licenses. You are responsible for using and syncing them only as those licenses allow.
+(c) Editing profiles are learned from the edits in the catalogs you choose. Only train profiles on edits you made yourself or have the right to use, and comply with the terms of any third-party service whose output is in your catalogs.
+(d) The Software reads catalogs without changing them; edits reach a catalog only when you run the plug-in in Lightroom Classic. Keep backups of your catalogs and original files.
+
+3. TRADEMARKS & NON-AFFILIATION
+Adobe and Lightroom are either registered trademarks or trademarks of Adobe Inc. in the United States and/or other countries. Virten Studio is an independent product and is not affiliated with, sponsored by, or endorsed by Adobe Inc. Adobe Lightroom Classic is required for the plug-in and is licensed separately by Adobe. Other product names are used only to describe compatibility and may be trademarks of their respective owners.
+
+4. THIRD-PARTY OPEN-SOURCE COMPONENTS & AI MODELS
+The Software includes independent open-source libraries and pre-trained AI models, including Qt for Python (PySide6, LGPL-3.0), LibRaw (LGPL-2.1), FFmpeg (LGPL-2.1, within OpenCV), MediaPipe and its Face Landmarker and Selfie Multiclass Segmentation models (Apache-2.0), OpenAI CLIP ViT-B/32 (MIT), ONNX Runtime and DirectML (MIT), OpenCV (Apache-2.0), and scikit-learn, SciPy and NumPy (BSD). Each is governed by its own license, reproduced in THIRD-PARTY-NOTICES.txt and the licenses folder installed with the Software and viewable under Settings -> About & Open-Source Licenses. Nothing in this Agreement limits your rights under those licenses. In particular, the LGPL-licensed libraries are dynamically linked and stored as separate files: you may replace them with modified versions, and, to the extent the LGPL requires, modify the Software for your own use and reverse-engineer it to debug such modifications.
+
+5. PRIVACY & NETWORK NOTICE
+Photo analysis, editing predictions, and culling run locally on your device. The Software contains no telemetry or analytics. It connects to the internet only to: (a) check GitHub (api.github.com) for a newer release of the Software, at startup and after a sync if "Check for updates automatically at startup" is on in Settings -> Updates, or when you click Check for updates, sending no identifiers, file names, or hardware data; (b) download an update you choose to install; and (c) open the Buy Me a Coffee page in your browser when you click it. If you choose a sync folder (for example on Google Drive or OneDrive), profiles, Looks, project backups, and installers are copied there and handled by that service under its own terms.
+
+6. VOLUNTARY SUPPORT
+Donations through Buy Me a Coffee are optional gifts to the developer. They do not purchase a license, features, support, or any other goods or services, and the Software works the same whether or not you donate.
+
+7. DISCLAIMER OF WARRANTIES ("AS IS")
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE," WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. THE DEVELOPER DOES NOT WARRANT THAT THE SOFTWARE WILL BE ERROR-FREE OR UNINTERRUPTED, THAT ITS AI SUGGESTIONS (EDITS, MASKS, OR CULLING HINTS) WILL BE ACCURATE, OR THAT IT WILL BE COMPATIBLE WITH EVERY CAMERA, FILE FORMAT, OR VERSION OF ADOBE LIGHTROOM CLASSIC. ALWAYS REVIEW EDITS AND KEEP BACKUPS OF YOUR CATALOGS AND ORIGINAL FILES.
+
+8. LIMITATION OF LIABILITY
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE DEVELOPER OR CONTRIBUTORS OF VIRTEN STUDIO BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF DATA, PHOTOS, CATALOGS, PROFITS, OR REVENUE, ARISING OUT OF OR RELATED TO YOUR USE OR INABILITY TO USE THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+9. TERMINATION
+This license ends automatically if you breach this Agreement. You may end it at any time by uninstalling the Software. Sections 3 to 8 survive termination.

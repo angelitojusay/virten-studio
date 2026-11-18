@@ -114,7 +114,7 @@ def safe_filename(name):
 def gather_training_photos(catalog_paths, progress=None, snapshot_step=None, feedback=None,
                            only_tweaked_catalogs=None, include_approved_catalogs=None, strip_look_catalogs=None):
     """Gathers edited RAW photos for training.
-    snapshot_step: learn the settings as they were right after this history step (e.g. "Imagen: LOVE & LIGHT")
+    snapshot_step: learn the settings as they were right after this history step (e.g. "AI Edit Step: Signature Warmth")
     instead of your final edits; photos without that step are skipped.
     only_tweaked_catalogs: catalogs where ONLY photos you changed after Virten Studio's edit are included.
     include_approved_catalogs: catalogs where even untouched Virten Studio edits are kept (you approved them).

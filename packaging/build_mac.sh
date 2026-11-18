@@ -43,6 +43,9 @@ rm -rf build dist
 pyinstaller --noconfirm packaging/autostyle.spec
 # (OpenCV inside the .app is handled by the runtime hook packaging/rth_cv2_mac.py.)
 
+echo "== Licence check"
+python packaging/check_bundle.py "dist/Virten Studio.app"
+
 echo "== Self-testing the built app"
 if ! "dist/Virten Studio.app/Contents/MacOS/Virten Studio" --selftest; then
   echo "The built app failed its self-test:"

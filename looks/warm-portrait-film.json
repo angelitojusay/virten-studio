@@ -1,6 +1,9 @@
 {
- "name": "Portra 400",
- "description": "Iconic wedding film stock: creamy warm skin tones, gently lifted shadows, golden highlights, slightly muted cyans and greens, fine grain.",
+ "name": "Warm Portrait Film",
+ "aliases": [
+  "Portra 400"
+ ],
+ "description": "Warm wedding film look: creamy warm skin tones, gently lifted shadows, golden highlights, slightly muted cyans and greens, fine grain.",
  "set": {
   "ToneCurvePV2012": [
    0,

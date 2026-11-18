@@ -1,6 +1,6 @@
 """Learned "tools" beyond global sliders: straighten/crop and AI masks (subject, background, sky, skin, teeth).
 
-Masks are written in the same lightweight form Imagen uses (mask type + slider values, no pixels);
+Masks are written in a lightweight form (mask type + slider values, no pixels);
 Lightroom computes the actual AI selection for each photo when the plugin calls photo:updateAISettings()."""
 import uuid
 from collections import Counter

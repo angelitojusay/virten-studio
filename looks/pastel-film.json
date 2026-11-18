@@ -1,5 +1,8 @@
 {
- "name": "Fuji 400H Pastel",
+ "name": "Pastel Film",
+ "aliases": [
+  "Fuji 400H Pastel"
+ ],
  "description": "Fine-art film look: cool airy highlights, pastel greens and blues, soft contrast, luminous skin.",
  "set": {
   "ToneCurvePV2012": [

@@ -1,5 +1,8 @@
 {
- "name": "Kodak Tri-X 400 B&W",
+ "name": "Classic 400 B&W",
+ "aliases": [
+  "Kodak Tri-X 400 B&W"
+ ],
  "description": "Classic documentary monochrome: gritty silver-halide contrast, deep blacks, bright skin, authentic film grain.",
  "set": {
   "ConvertToGrayscale": true,

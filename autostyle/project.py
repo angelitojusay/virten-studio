@@ -332,6 +332,8 @@ def run_project(project, progress=None, cancelled=lambda: False):
     look = looks.get_look(project["look"]) if project.get("look") else None
     if not profile and not look:
         raise ValueError(f"The Look “{project.get('look')}” wasn't found. Choose another Look or a profile.")
+    if look:
+        project["look"] = look["name"]  # a renamed built-in Look chosen by its old name: save the current one
     X, ok = extract_many(photos, progress, cancelled)  # also makes the thumbnails for the results grid
     if cancelled():
         raise InterruptedError
@@ -445,6 +447,8 @@ def _set_look(p, look_name, look_strength):
     look = looks.get_look(p["look"]) if p.get("look") else None
     if p.get("look") and not look:
         raise ValueError(f"The Look “{p['look']}” wasn't found.")
+    if look:
+        p["look"] = look["name"]  # a renamed built-in Look: save its current name
     if not p.get("profile") and not look:
         raise ValueError("A Look-only project needs a Look.")
     return look

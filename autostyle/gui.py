@@ -22,13 +22,15 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog,
     QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSlider, QSplitter,
-    QStackedWidget, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QPlainTextEdit, QStackedWidget, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from . import __version__, catalog as lrcat, cull, features, looks, model, prefs, preview, project as proj, sync, tools
+from . import (
+    __version__, catalog as lrcat, cull, features, looks, model, prefs, preview, project as proj, support, sync, tools,
+)
 from .paths import (
     IS_MAC, OLD_PLUGIN_FOLDER, PLUGIN_FOLDER, camera_raw_presets_dir, data_dir, lightroom_modules_dir,
-    log_file, open_with_system, plugin_source_dir,
+    log_file, open_with_system, plugin_source_dir, resource_dir,
 )
 
 ACCENT = "#8b6cff"
@@ -73,6 +75,12 @@ QPushButton#Danger:hover {{ background: #2e1d23; }}
 QPushButton#PillToggle {{ padding: 5px 12px; border-radius: 6px; font-size: {_pt(9)}pt; }}
 QPushButton#PillToggle:checked {{ background: {ACCENT}; color: white; border-color: {ACCENT}; font-weight: 600; }}
 QPushButton#Nudge {{ padding: 4px 8px; border-radius: 6px; font-size: {_pt(8.5)}pt; min-width: 0px; }}
+#coffeeBtn {{ text-align: left; padding: 6px 16px; border: none; border-radius: 8px; margin: 0px 10px 2px 10px;
+              background: transparent; color: #b9a27a; font-size: {_pt(9)}pt; }}
+#coffeeBtn:hover {{ background: #1c1912; color: #f2d49b; }}
+#LegalText {{ color: #9ea1b0; font-size: {_pt(8.5)}pt; }}
+QPlainTextEdit#LicenseView {{ background: #101217; border: 1px solid #232630; border-radius: 8px;
+    font-family: 'Cascadia Mono', 'Consolas', 'Menlo', monospace; font-size: {_pt(9)}pt; }}
 #JobPanel {{ background: #15131f; border: 1px solid #352b63; border-radius: 10px; }}
 #JobTitle {{ color: white; font-weight: 600; font-size: {_pt(9)}pt; }}
 #QDLabel {{ color: #9ea1b0; font-size: {_pt(8.5)}pt; font-weight: 600; }}
@@ -144,6 +152,31 @@ QPushButton#AccHeader:hover {{ background: #2a2c36; }}
 #MetaKey {{ color: #7d8090; font-size: {_pt(8.5)}pt; }}
 #MetaVal {{ color: #e8e8ee; font-size: {_pt(8.5)}pt; }}
 """
+
+
+# ---------------------------------------------------------------- legal & privacy text (Settings ▸ About)
+
+APP_TAGLINE = "Companion Workflow for Adobe® Lightroom® Classic Catalogs"
+TRADEMARK_NOTICE = (
+    "Adobe and Lightroom are either registered trademarks or trademarks of Adobe Inc. in the United States and/or "
+    "other countries. Virten Studio is an independent product and is not affiliated with, sponsored by, or endorsed "
+    "by Adobe Inc.")
+PRIVACY_NOTE = (
+    "Privacy: your photos, catalogs, profiles and projects stay on this computer (and in the sync folder you choose). "
+    "No telemetry or analytics. Update checks send one request to GitHub (api.github.com, the latest release of this "
+    "app) with no IDs, file names or hardware data: at startup and after a sync when “Check for updates automatically "
+    "at startup” is on (Settings ▸ Updates), otherwise only when you click Check for updates. Buy Me a Coffee opens in "
+    "your browser only when you click it.")
+OPEN_SOURCE_NOTE = (
+    "Virten Studio includes open-source software and AI models under their own licences: Qt for Python (LGPL-3.0, "
+    "dynamically linked; you can replace its libraries), LibRaw and FFmpeg (LGPL-2.1), MediaPipe and its face and "
+    "segmentation models (Apache-2.0), OpenAI CLIP ViT-B/32 (MIT), ONNX Runtime and DirectML (MIT), scikit-learn, "
+    "SciPy and NumPy (BSD) and more. Their notices and full licence texts are below.")
+
+
+def auto_update_check():
+    """Settings ▸ Updates ▸ Check for updates automatically at startup (on by default)."""
+    return prefs.load().get("auto_update_check", True) is not False
 
 
 # ---------------------------------------------------------------- helpers
@@ -1888,7 +1921,7 @@ class NewProjectWizard(PhotoPickerWizard):
         self.looks.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.looks.setCurrentRow(0)
         for i in range(self.looks.count()):
-            if self.looks.item(i).data(Qt.UserRole) == saved_choices.get("look"):
+            if self.looks.item(i).data(Qt.UserRole) == looks.canonical_name(saved_choices.get("look")):
                 self.looks.setCurrentRow(i)
         if self.looks.currentRow() == 0 and self.looks.count() > 1 and self.look_only():
             self.looks.setCurrentRow(1)
@@ -2608,7 +2641,7 @@ class ProjectsPage(Page):
         l.addWidget(thumb)
         info = QVBoxLayout()
         info.addWidget(label(p["name"], "H2"))
-        look = f" + {p['look']}" if p.get("look") else ""
+        look = f" + {looks.canonical_name(p['look'])}" if p.get("look") else ""
         if p.get("kind") == "cull":
             s = p.get("summary") or {}
             what = (
@@ -2834,6 +2867,11 @@ class SettingsPage(Page):
         form.addWidget(self.token_edit, 1, 1)
         form.setColumnStretch(1, 1)
         l.addLayout(form)
+        self.auto_update = QCheckBox("Check for updates automatically at startup")
+        self.auto_update.setChecked(auto_update_check())
+        self.auto_update.setToolTip("When off, Virten Studio contacts GitHub only when you click Check for updates.")
+        self.auto_update.toggled.connect(lambda on: prefs.save(auto_update_check=bool(on)))
+        l.addWidget(self.auto_update)
         self.update_status = label("", "Muted")
         l.addLayout(hbox(button("Save", slot=self.save_update_source),
                          button("Check for updates", slot=self.check_updates), self.update_status, None))
@@ -2845,7 +2883,7 @@ class SettingsPage(Page):
         except Exception:
             device = "CPU"
         l = self.section(
-            "About",
+            "Version & Diagnostics",
             f"Virten Studio {__version__}\nScene AI runs on: {device}  ·  Photo analysis uses "
             f"{features.worker_count()} parallel workers on this computer's CPU",
         )
@@ -2861,7 +2899,46 @@ class SettingsPage(Page):
             button("Clean up orphaned cache files", slot=self.clean_cache),
             None,
         ))
+
+        l = self.section("Support Virten Studio", "Free, local-first, no tracking. If it saves you time:")
+        l.addLayout(hbox(button("☕  Buy Me a Coffee", "Primary", slot=lambda: support.open_support_page()), None))
+
+        l = self.section("About & Open-Source Licenses", None)
+        l.addWidget(label(f"Virten Studio {__version__} — {APP_TAGLINE}", "H2", wrap=True))
+        for text in (TRADEMARK_NOTICE, PRIVACY_NOTE, OPEN_SOURCE_NOTE):
+            l.addWidget(label(text, "LegalText", wrap=True))
+        l.addLayout(hbox(
+            button("License (EULA)", slot=lambda: self.show_text_file("LICENSE.txt", "Virten Studio License")),
+            button("Third-Party Notices", slot=lambda: self.show_text_file("THIRD-PARTY-NOTICES.txt",
+                                                                          "Open-Source Licenses")),
+            button("Open licenses folder", slot=lambda: QDesktopServices.openUrl(
+                QUrl.fromLocalFile(os.path.join(resource_dir(), "licenses")))),
+            None,
+        ))
         self.body.addStretch(1)
+
+    def show_text_file(self, name, title):
+        """Read-only viewer for a bundled text file (the EULA or the third-party notices)."""
+        path = os.path.join(resource_dir(), name)
+        try:
+            with open(path, encoding="utf-8-sig") as f:
+                text = f.read()
+        except OSError:
+            QMessageBox.warning(self, "Virten Studio", f"{name} wasn't found next to the app ({path}).")
+            return None
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"{title} — Virten Studio {__version__}")
+        dlg.resize(820, 640)
+        v = QVBoxLayout(dlg)
+        view = QPlainTextEdit(text)
+        view.setObjectName("LicenseView")
+        view.setReadOnly(True)
+        view.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        v.addWidget(view, 1)
+        v.addLayout(hbox(None, button("Close", "Primary", slot=dlg.accept)))
+        dlg.viewer = view
+        dlg.open()
+        return dlg
 
     def save_update_source(self):
         repo = self.repo_edit.text().strip().removeprefix("https://github.com/").strip("/").removesuffix(".git")
@@ -3781,7 +3858,8 @@ class ProjectDetail(QWidget):
             self.teach_btn.setText("✦ Learn Cull")
             self.teach_btn.setToolTip("Done culling? Teach the assisted-culling model your picks in this shoot")
         else:
-            look = f"   ·   look “{p['look']}” {p.get('look_strength', 1):.0%}" if p.get("look") else ""
+            look = (f"   ·   look “{looks.canonical_name(p['look'])}” {p.get('look_strength', 1):.0%}"
+                    if p.get("look") else "")
             profile = f"profile “{p['profile']}”" if p.get("profile") else "no profile"
             self.meta.setText(f"{p['catalog']}   ·   {profile}{look}   ·   {p.get('count', 0):,} photos")
             self.teach_btn.setText("✦ Learn Tweaks…")
@@ -3803,7 +3881,7 @@ class ProjectDetail(QWidget):
         self.live_look.addItem("None (Profile only)", None)
         for lk in looks.list_looks():
             self.live_look.addItem(lk["name"], lk["name"])
-        idx = max(0, self.live_look.findData(p.get("look")))
+        idx = max(0, self.live_look.findData(looks.canonical_name(p.get("look"))))
         self.live_look.setCurrentIndex(idx)
         self.live_look.setEnabled(can_re)
         self.live_look_str.slider.setValue(int(round(float(p.get("look_strength", 1.0)) * 100)))
@@ -4104,6 +4182,9 @@ class MainWindow(QMainWindow):
         sl.addWidget(self.sync_label)
         self.plugin_status = button("", "NavButton", slot=self.plugin_clicked)
         sl.addWidget(self.plugin_status)
+        self.coffee_btn = button("☕  Buy Me a Coffee", "coffeeBtn", slot=lambda: support.open_support_page())
+        self.coffee_btn.setToolTip("Optional: support Virten Studio (opens buymeacoffee.com in your browser)")
+        sl.addWidget(self.coffee_btn)
         rl.addWidget(side)
         self.sidebar = side
         self.sidebar_collapsed = False
@@ -4156,7 +4237,8 @@ class MainWindow(QMainWindow):
     def run_sync(self, on_done=None):
         if not sync.sync_dir():
             self.sync_label.setText("")
-            self.check_update()  # GitHub Releases still offer updates without a sync folder
+            if auto_update_check():  # GitHub Releases still offer updates without a sync folder
+                self.check_update()
             return on_done([]) if on_done else None
         self.sync_label.setText("Syncing…")
 
@@ -4164,7 +4246,8 @@ class MainWindow(QMainWindow):
             self.sync_label.setText("☁  Synced " + datetime.datetime.now().strftime("%H:%M"))
             if changed and self.stack.currentWidget() in (self.profiles, self.projects):
                 self.stack.currentWidget().reload()
-            self.check_update()
+            if auto_update_check():
+                self.check_update()
             if on_done:
                 on_done(changed)
 

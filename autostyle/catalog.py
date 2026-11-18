@@ -173,7 +173,7 @@ IGNORED_STEPS = ("Import", "Export", "Virten Studio:", "AutoStyle:", "Crop", "Pa
 
 
 def history_step_counts(catalog_paths):
-    """{step name: photos} for named history steps worth learning from (e.g. "Imagen: LOVE & LIGHT")."""
+    """{step name: photos} for named history steps worth learning from (e.g. "AI Edit Step: Signature Warmth")."""
     counts = {}
     for c in catalog_paths:
         try:

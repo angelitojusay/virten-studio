@@ -8,6 +8,11 @@ AppId={{8F9AFAD6-CC89-49B8-9F9E-C02BE6F95097}
 AppName=Virten Studio
 AppVersion={#AppVersion}
 AppPublisher=Angelito Jusay
+AppCopyright=Copyright (c) 2026 Angelito Jusay
+AppComments=Virten Studio - Companion Workflow for Adobe(R) Lightroom(R) Classic Catalogs. Adobe and Lightroom are either registered trademarks or trademarks of Adobe Inc. in the United States and/or other countries. Virten Studio is an independent product and is not affiliated with, sponsored by, or endorsed by Adobe Inc.
+VersionInfoDescription=Virten Studio - Companion Workflow for Adobe Lightroom Classic Catalogs
+VersionInfoCopyright=Copyright (c) 2026 Angelito Jusay. Adobe and Lightroom are trademarks of Adobe Inc.; Virten Studio is not affiliated with Adobe Inc.
+LicenseFile=..\LICENSE.txt
 DefaultDirName={localappdata}\Programs\Virten Studio
 DefaultGroupName=Virten Studio
 UsePreviousAppDir=no
@@ -27,8 +32,13 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Files]
 Source: "..\dist\Virten Studio\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+Source: "..\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [InstallDelete]
+; Replace the whole previous app bundle, so nothing a newer version dropped stays behind (e.g. 1.6.1's GPL-only
+; Qt Virtual Keyboard, or built-in Looks that were renamed). User data lives in %APPDATA% and isn't touched.
+Type: filesandordirs; Name: "{app}\_internal"
 ; Virten Studio was called AutoStyle: remove the old program folder and shortcuts
 Type: filesandordirs; Name: "{localappdata}\Programs\AutoStyle"
 Type: filesandordirs; Name: "{userprograms}\AutoStyle"
