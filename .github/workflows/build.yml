@@ -1,7 +1,10 @@
 # Builds the macOS .dmg and the Windows installer in the cloud and attaches both to a GitHub Release, which the app's
 # updater (autostyle/sync.py) offers to every computer.
-#   Release:  git tag v1.6.1 && git push origin v1.6.1   (the tag must match autostyle/__init__.py)
+#   Release:  git tag v1.6.2 && git push origin v1.6.2   (the tag must match autostyle/__init__.py)
 #   Any time: GitHub ▸ Actions ▸ "Build installers" ▸ Run workflow
+# The installers go straight to the release, never through workflow artifacts: a private repository's artifact storage
+# (500 MB on the free plan) can't hold one build's two installers. The release stays a pre-release (which the app's
+# updater ignores) until both installers are attached, then "publish" makes it the latest release.
 name: Build installers
 
 on:
@@ -16,10 +19,37 @@ env:
   PYTHONIOENCODING: utf-8
 
 jobs:
-  build-macos:
-    runs-on: [self-hosted, macOS, ARM64]  # Apple Silicon
+  prepare:
+    runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - name: Version
+        id: version
+        run: |
+          VERSION="$(python3 -c 'import sys; sys.path.insert(0, "."); from autostyle import __version__; print(__version__)')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$VERSION" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match the app version $VERSION (autostyle/__init__.py)"; exit 1
+          fi
+      - name: Create the release as a pre-release (or reuse it on a re-run)
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          if gh release view "v$V" >/dev/null 2>&1; then
+            gh release edit "v$V" --prerelease
+          else
+            gh release create "v$V" --title "Virten Studio $V" --target "$GITHUB_SHA" --prerelease --generate-notes
+          fi
+
+  build-macos:
+    needs: prepare
+    runs-on: [self-hosted, macOS, ARM64]  # Apple Silicon
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,17 +116,18 @@ jobs:
             sleep 10
           done
           test -f "$DMG"
-      - uses: actions/upload-artifact@v4
+      - name: Attach the .dmg to the release
+        uses: softprops/action-gh-release@v2
         with:
-          name: VirtenStudio-mac
-          path: dist/VirtenStudio-*.dmg
-          if-no-files-found: error
-          retention-days: 1  # the release keeps the installers; artifacts are only the hand-off to the release job
+          tag_name: v${{ needs.prepare.outputs.version }}
+          files: dist/VirtenStudio-*.dmg
+          fail_on_unmatched_files: true
+          prerelease: true
+          make_latest: false
 
   build-windows:
+    needs: prepare
     runs-on: windows-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
     defaults:
       run:
         shell: bash
@@ -150,30 +181,28 @@ jobs:
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
           & $iscc "/DAppVersion=$env:VERSION" packaging\installer.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - uses: actions/upload-artifact@v4
+      - name: Attach the installer to the release
+        uses: softprops/action-gh-release@v2
         with:
-          name: VirtenStudio-windows
-          path: dist/VirtenStudio-Setup-*.exe
-          if-no-files-found: error
-          retention-days: 1
-
-  release:
-    # One job publishes both files, so the two builds can't race to create the same release.
-    needs: [build-macos, build-windows]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.build-windows.outputs.version }}
-          name: Virten Studio ${{ needs.build-windows.outputs.version }}
-          target_commitish: ${{ github.sha }}
-          files: |
-            dist/VirtenStudio-*.dmg
-            dist/VirtenStudio-Setup-*.exe
+          tag_name: v${{ needs.prepare.outputs.version }}
+          files: dist/VirtenStudio-Setup-*.exe
           fail_on_unmatched_files: true
-          make_latest: true
-          generate_release_notes: true
+          prerelease: true
+          make_latest: false
+
+  publish:
+    # Only when both installers are attached: the release becomes the latest one, which the app's updater offers.
+    needs: [prepare, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check both installers are attached, then publish
+        run: |
+          V="${{ needs.prepare.outputs.version }}"
+          ASSETS="$(gh release view "v$V" --json assets --jq '.assets[].name')"
+          echo "$ASSETS"
+          echo "$ASSETS" | grep -qx "VirtenStudio-$V.dmg" || { echo "::error::VirtenStudio-$V.dmg is missing"; exit 1; }
+          echo "$ASSETS" | grep -qx "VirtenStudio-Setup-$V.exe" || { echo "::error::VirtenStudio-Setup-$V.exe is missing"; exit 1; }
+          gh release edit "v$V" --prerelease=false --latest
